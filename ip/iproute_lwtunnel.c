@@ -178,6 +178,7 @@ static const char *seg6_action_names[SEG6_LOCAL_ACTION_MAX + 1] = {
 	[SEG6_LOCAL_ACTION_END_AS]		= "End.AS",
 	[SEG6_LOCAL_ACTION_END_AM]		= "End.AM",
 	[SEG6_LOCAL_ACTION_END_BPF]		= "End.BPF",
+	[SEG6_LOCAL_ACTION_UN]			= "uN",
 };
 
 static const char *format_action_type(int action)
@@ -278,6 +279,15 @@ static void print_encap_seg6local(FILE *fp, struct rtattr *encap)
 
 	if (tb[SEG6_LOCAL_BPF])
 		print_encap_bpf_prog(fp, tb[SEG6_LOCAL_BPF], "endpoint");
+
+	if (tb[SEG6_LOCAL_USEG]) {
+		struct usid_layout *lyt = RTA_DATA(tb[SEG6_LOCAL_USEG]);
+
+		print_uint(PRINT_ANY, "ubl",
+			   "ubl %u ", lyt->usid_block_len);
+		print_uint(PRINT_ANY, "ul",
+			   "ul %u ", lyt->usid_len);
+	}
 }
 
 static void print_encap_mpls(FILE *fp, struct rtattr *encap)
@@ -634,7 +644,9 @@ static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 {
 	int segs_ok = 0, hmac_ok = 0, table_ok = 0, nh4_ok = 0, nh6_ok = 0;
 	int iif_ok = 0, oif_ok = 0, action_ok = 0, srh_ok = 0, bpf_ok = 0;
+	struct usid_layout usid_lyt = {0, 0};
 	__u32 action = 0, table, iif, oif;
+	int ubl_ok = 0, ul_ok = 0;
 	struct ipv6_sr_hdr *srh;
 	char **argv = *argvp;
 	int argc = *argcp;
@@ -689,6 +701,16 @@ static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 			if (!oif)
 				exit(nodev(*argv));
 			ret = rta_addattr32(rta, len, SEG6_LOCAL_OIF, oif);
+		} else if (strcmp(*argv, "ubl") == 0) {
+			NEXT_ARG();
+			if (ubl_ok++)
+				duparg2("ubl", *argv);
+			get_u8(&usid_lyt.usid_block_len, *argv, 0);
+		} else if (strcmp(*argv, "ul") == 0) {
+			NEXT_ARG();
+			if (ul_ok++)
+				duparg2("ul", *argv);
+			get_u8(&usid_lyt.usid_len, *argv, 0);
 		} else if (strcmp(*argv, "srh") == 0) {
 			NEXT_ARG();
 			if (srh_ok++)
@@ -742,6 +764,10 @@ static int parse_encap_seg6local(struct rtattr *rta, size_t len, int *argcp,
 		ret = rta_addattr_l(rta, len, SEG6_LOCAL_SRH, srh, srhlen);
 		free(srh);
 	}
+
+	if (ubl_ok || ul_ok)
+		ret = rta_addattr_l(rta, len, SEG6_LOCAL_USEG,
+				    &usid_lyt, sizeof(usid_lyt));
 
 	*argcp = argc + 1;
 	*argvp = argv - 1;
